@@ -22,7 +22,7 @@ This plugin copies each app's build to its subpath and, on every Eleventy build:
 - exposes URL, version and commit to templates, with an `appUrl` filter that **fails** on unknown app names,
 - optionally writes an Apache `.htaccess` per app so deep links fall back to the app's `index.html`.
 
-It never builds or modifies the apps — building stays a separate step in each app's repo.
+It never modifies the apps. By default it doesn't build them either — building stays a separate step in each app's repo — but with `build: true` it runs each app's `npm run build:web` first, so the site always ships a fresh build.
 
 ## Installation
 
@@ -52,6 +52,8 @@ Each app's web build must be made for its subpath, e.g. an Angular build configu
 | --- | --- | --- |
 | `apps` | `{}` | Map of app name → app config (see below). |
 | `output` | `"dist/web"` | Default build output directory, relative to each app's `source`. |
+| `build` | `false` | Run `npm run <buildScript>` in each app's `source` before the checks, one app after another. A failing build fails the site build. Skipped in `--watch`/`--serve` mode, where every saved template would rebuild every app. |
+| `buildScript` | `"build:web"` | npm script that builds the app for its subpath. |
 | `checkBaseHref` | `"error"` | Web build's `<base href>` must equal its subpath. `"error"`, `"warn"` or `"off"`. A missing build is always an error. |
 | `checkNative` | `"warn"` | `nativeWebDir` build must have `<base href="/">`. Skipped if that build doesn't exist. |
 | `stale` | `"warn"` | Build older than the app's latest git commit, or uncommitted changes in the app repo. |
@@ -65,7 +67,21 @@ App config:
 | `source` | — (required) | App repo directory, relative to the Eleventy project root. May lie outside it. |
 | `path` | `/<name>/` | Subpath on the site. Slashes are normalized. |
 | `output` | plugin `output` | Build output directory, relative to `source`. |
+| `build` | plugin `build` | `false` to use this app's existing build even when `build` is on (or `true` the other way round). |
+| `buildScript` | plugin `buildScript` | npm script for this app. |
 | `nativeWebDir` | — | Capacitor `webDir` (e.g. `www/browser`), relative to `source`, for the native check. |
+
+## Building the apps
+
+```js
+eleventyConfig.addPlugin(appsPlugin, {
+  // Rebuild all apps on every `eleventy` build; APPS_BUILD=0 skips it for a quick site-only build.
+  build: process.env.APPS_BUILD !== "0",
+  apps: { /* … */ },
+});
+```
+
+The build's output goes straight to the terminal. Every app needs its dependencies installed (`npm install` in its repo) — the plugin doesn't install them. A fresh build doesn't silence the `stale` check for uncommitted changes: the build then contains them.
 
 ## In templates
 

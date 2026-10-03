@@ -1,6 +1,6 @@
 {
   "name": "@flyewi/eleventy-plugin-apps",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Eleventy plugin that mounts separately built single-page apps (Angular, Ionic, …) under subpaths of your site, checks their base href, and exposes their URLs and versions to templates.",
   "main": "lib/apps.js",
   "type": "commonjs",

@@ -176,3 +176,101 @@ test("apache: off by default", () => {
   });
   assert.equal(config.has("eleventy.after"), false);
 });
+
+// An app whose `build:web` script writes dist/web/index.html with the given base href.
+function makeBuildableApp(cwd, name, { baseHref = `/${name}/`, fail = false } = {}) {
+  const dir = makeApp(cwd, name);
+  fs.writeFileSync(
+    path.join(dir, "build.js"),
+    fail
+      ? "process.exit(3);\n"
+      : `const fs = require("fs");
+fs.mkdirSync("dist/web", { recursive: true });
+fs.writeFileSync("dist/web/index.html", '<base href="${baseHref}">');
+`
+  );
+  fs.writeFileSync(
+    path.join(dir, "package.json"),
+    JSON.stringify({ name, version: "1.0.0", scripts: { "build:web": "node build.js", other: "node build.js" } })
+  );
+  return dir;
+}
+
+test("build: runs each app's build:web before the checks", async () => {
+  const { cwd, config, messages } = setup(
+    (cwd) => {
+      makeBuildableApp(cwd, "a");
+      return { a: { source: "a" } };
+    },
+    { build: true }
+  );
+  await config.fire("eleventy.before", { runMode: "build" });
+  assert.ok(fs.existsSync(path.join(cwd, "a/dist/web/index.html")));
+  assert.deepEqual(messages, ["building a: npm run build:web"]);
+});
+
+test("build: a failing app build fails the site build", async () => {
+  const { config } = setup(
+    (cwd) => {
+      makeBuildableApp(cwd, "a", { fail: true });
+      return { a: { source: "a" } };
+    },
+    { build: true }
+  );
+  await assert.rejects(config.fire("eleventy.before", { runMode: "build" }), /a: `npm run build:web` failed \(exit code 3\)/);
+});
+
+test("build: the fresh build still goes through the base href check", async () => {
+  const { config } = setup(
+    (cwd) => {
+      makeBuildableApp(cwd, "a", { baseHref: "/" });
+      return { a: { source: "a" } };
+    },
+    { build: true }
+  );
+  await assert.rejects(config.fire("eleventy.before", { runMode: "build" }), /expected "\/a\/"/);
+});
+
+test("build: skipped in watch and serve mode", async () => {
+  const { cwd, config, messages } = setup(
+    (cwd) => {
+      makeBuildableApp(cwd, "a");
+      writeIndex(path.join(cwd, "a/dist/web"), "/a/");
+      fs.writeFileSync(path.join(cwd, "a/build.js"), "process.exit(1);\n");
+      return { a: { source: "a" } };
+    },
+    { build: true }
+  );
+  await config.fire("eleventy.before", { runMode: "serve" });
+  assert.match(messages[0], /skipping app builds in serve mode/);
+  assert.ok(fs.existsSync(path.join(cwd, "a/dist/web/index.html")));
+});
+
+test("build: per-app opt-out and custom script", async () => {
+  const { cwd, config, messages } = setup(
+    (cwd) => {
+      makeBuildableApp(cwd, "a");
+      makeBuildableApp(cwd, "b");
+      writeIndex(path.join(cwd, "b/dist/web"), "/b/");
+      return { a: { source: "a", buildScript: "other" }, b: { source: "b", build: false } };
+    },
+    { build: true }
+  );
+  await config.fire("eleventy.before", { runMode: "build" });
+  assert.deepEqual(messages, ["building a: npm run other"]);
+});
+
+test("build: off by default", async () => {
+  const { config } = setup((cwd) => {
+    makeBuildableApp(cwd, "a");
+    return { a: { source: "a" } };
+  });
+  await assert.rejects(config.fire("eleventy.before", { runMode: "build" }), /no build at/);
+});
+
+test("build: rejects invalid values", () => {
+  const config = fakeEleventyConfig();
+  assert.throws(() => appsPlugin(config, { apps: {}, build: "yes", log: false }), /`build` must be true or false/);
+  assert.throws(() => appsPlugin(config, { apps: { a: { source: ".", build: 1 } }, log: false }), /`build` must be true or false/);
+  assert.throws(() => appsPlugin(config, { apps: { a: { source: ".", buildScript: "" } }, log: false }), /`buildScript`/);
+});
